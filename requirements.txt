@@ -1,5 +1,6 @@
+# Python 3.11 이상. 예약 실행 환경(3.11)과 개발 환경(3.13) 모두에서 설치되도록 범위로 지정함
 finance-datareader==0.9.202
-feedparser==6.0.14
-pandas==2.3.3
-numpy==2.5.4
-requests
+feedparser>=6.0,<7
+pandas>=2.0,<3
+numpy>=1.26,<3
+requests>=2.28
