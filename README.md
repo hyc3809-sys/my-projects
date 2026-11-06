@@ -1,2 +1,1 @@
-# my-projects
-Personal development projects
+# 주식투자의 성공을 위한 성공파트너
