@@ -1,0 +1,5 @@
+finance-datareader==0.9.202
+feedparser==6.0.14
+pandas==2.3.3
+numpy==2.5.4
+requests
