@@ -10,7 +10,7 @@
 
 | 경로 | 내용 |
 | --- | --- |
-| `fundmanager/data.py` | 시세·지수(네이버 금융, FinanceDataReader), 뉴스(Google 뉴스 RSS) 수집 |
+| `fundmanager/data.py` | 시세·지수(네이버 금융, FinanceDataReader), 뉴스(Google 뉴스 RSS, 블로그 제외) 수집 |
 | `fundmanager/analyze.py` | 수익률·비중·변동성·MDD·베타·RSI 계산, 투자 원칙 점검 |
 | `fundmanager/build_report.py` | 리포트 JSON 생성 |
 | `web/portfolio.html` | 포트폴리오 페이지 소스 |
