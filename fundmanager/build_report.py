@@ -107,15 +107,25 @@ def build(inp: dict) -> dict:
             row.update(analyze.price_metrics(df))
         watch_rows.append(row)
 
-    news = []
-    for q, label in [("코스피 증시", "시장")] + [((x["name"] or x["code"]), x["name"] or x["code"]) for x in holdings + watch]:
+    as_of = market.get("KOSPI", {}).get("date") or max((p.get("date", "") for p in positions), default="")
+    # 뉴스 기간: 직전 거래일부터 오늘까지(월요일이면 금요일 기사 포함), 2~7일
+    try:
+        gap = (now.date() - dt.date.fromisoformat(as_of)).days
+    except ValueError:
+        gap = 1
+    within = min(max(gap + 1, 2), 7)
+
+    news, seen = [], set()
+    targets = [("코스피 증시", "시장", None)]
+    for x in holdings + watch:
+        name = x["name"] if x["name"] and x["name"] != x["code"] else ""
+        targets.append((f'"{name}"' if name else x["code"], name or x["code"], name or None))
+    for q, label, must in targets:
         try:
-            for n in data.fetch_news(q, limit=3):
+            for n in data.fetch_news(q, limit=3, within_days=within, must_contain=must, seen=seen):
                 news.append({"topic": label, **n})
         except Exception as e:  # noqa: BLE001
             errors.append(f"뉴스 조회 실패({label}): {type(e).__name__}")
-
-    as_of = market.get("KOSPI", {}).get("date") or max((p.get("date", "") for p in positions), default="")
     return {
         "date": now.strftime("%Y-%m-%d"),
         "generated_at": now.isoformat(timespec="minutes"),
@@ -128,9 +138,10 @@ def build(inp: dict) -> dict:
         "watch": watch_rows,
         "alerts": alerts,
         "news": news,
+        "news_within_days": within,
         "commentary": "",
         "errors": errors,
-        "sources": "시세·지수: 네이버 금융(FinanceDataReader), 뉴스: Google 뉴스 RSS. 전 거래일 종가 기준.",
+        "sources": f"시세·지수: 네이버 금융(FinanceDataReader), 뉴스: Google 뉴스 RSS 최근 {within}일. 전 거래일 종가 기준.",
     }
 
 

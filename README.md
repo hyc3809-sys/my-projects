@@ -15,6 +15,7 @@
 | `fundmanager/build_report.py` | 리포트 JSON 생성 |
 | `web/portfolio.html` | 포트폴리오 페이지 소스 |
 | `docs/morning-report.md` | 아침 예약 작업 실행 절차 |
+| `tests/` | 계산·점검 로직 시험 |
 
 ## 직접 실행
 
@@ -22,5 +23,7 @@
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m fundmanager.build_report --input input.json --out report.json
 ```
+
+시험(네트워크 불필요): `.venv/bin/python -m unittest discover -s tests -t .`
 
 `input.json` 형식: `{"holdings":[{"code":"005930","name":"삼성전자","qty":10,"avg_price":70000}], "watchlist":[], "rules":{"cash":0}}`

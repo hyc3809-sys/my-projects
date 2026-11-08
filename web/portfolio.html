@@ -55,6 +55,7 @@ header.top { padding-top: 20px; display: flex; flex-direction: column; gap: 6px;
 header.top h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
 .asof { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
 .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; background: var(--chip); color: var(--ink); font-size: 12px; font-weight: 500; }
+.pill.warn { color: var(--warn); }
 
 nav.tabs {
   position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
@@ -222,6 +223,24 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     return m;
   }
 
+  // 한국 시간 기준 오늘 리포트가 없는지 (평일 08:10 이후)
+  function kstNow() { var d = new Date(Date.now() + 9 * 3600 * 1000); return { date: d.toISOString().slice(0, 10), day: d.getUTCDay(), min: d.getUTCHours() * 60 + d.getUTCMinutes() }; }
+  function missingToday() {
+    var k = kstNow(), latest = state.reports[0];
+    if (!state.loaded.reports || state.dbMissing || k.day === 0 || k.day === 6 || k.min < 8 * 60 + 10) return false;
+    return !latest || latest.date < k.date;
+  }
+  // 리포트 작성 이후 보유 종목(코드·수량·평단가)이 바뀌었는지
+  function holdingsChanged(r) {
+    if (!state.loaded.holdings) return false;
+    var a = {}, b = {};
+    (r.positions || []).forEach(function (p) { a[p.code] = Number(p.qty) + "/" + Number(p.avg_price); });
+    state.holdings.forEach(function (x) { b[x.code] = Number(x.qty) + "/" + Number(x.avg_price); });
+    var ka = Object.keys(a);
+    if (ka.length !== Object.keys(b).length) return true;
+    return ka.some(function (k) { return a[k] !== b[k]; });
+  }
+
   // ---------- 해설 문구(간단한 마크다운) ----------
   function md(src) {
     var lines = esc(src || "").split("\n"), out = "", inList = false;
@@ -252,6 +271,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     if (state.selected && state.reports[0] && state.selected !== state.reports[0].id) {
       h += '<div class="banner">' + esc(r.date) + ' 리포트를 보고 있습니다. <button class="ghost small" data-act="latest">최신 리포트로</button></div>';
     }
+    if (r === state.reports[0] && holdingsChanged(r)) h += '<div class="banner">보유 종목이 이 리포트 작성 이후 바뀌었습니다. 다음 리포트에 반영됩니다.</div>';
     if (t.count) {
       h += '<div class="tiles">' +
         '<div class="tile"><span class="label">총자산 (주식+현금)</span><span class="value num">' + won(t.total_assets) + '</span><span class="sub muted">현금 ' + won(t.cash) + (n(t.cash_pct) != null ? ' · ' + t.cash_pct.toFixed(1) + '%' : '') + '</span></div>' +
@@ -319,7 +339,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     if (r.news && r.news.length) {
       var groups = {}, order = [];
       r.news.forEach(function (x) { var k = x.topic || "기타"; if (!groups[k]) { groups[k] = []; order.push(k); } groups[k].push(x); });
-      h += '<div class="block"><h2>뉴스 (최근 2일)</h2><div class="card news">' + order.map(function (k) {
+      h += '<div class="block"><h2>뉴스 (최근 ' + (n(r.news_within_days) || 2) + '일)</h2><div class="card news">' + order.map(function (k) {
         return '<div><h3>' + esc(k) + '</h3><ul>' + groups[k].map(function (x) {
           var u = safeUrl(x.link);
           return '<li>' + (u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(x.title) + '</a>' : esc(x.title)) + (x.source ? '<span class="src">' + esc(x.source) + '</span>' : '') + '</li>';
@@ -338,7 +358,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     var e = state.editing || {};
     var dis = state.readonly || !state.db ? " disabled" : "";
     return '<div class="card"><form class="editor" id="f-hold" autocomplete="off">' +
-      '<label class="field"><span>종목코드 (6자리)</span><input id="h-code" class="num" inputmode="numeric" maxlength="6" placeholder="005930" value="' + esc(e.code || "") + '"' + dis + '></label>' +
+      '<label class="field"><span>종목코드 (6자리)</span><input id="h-code" class="num" inputmode="text" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="6" placeholder="005930" value="' + esc(e.code || "") + '"' + dis + '></label>' +
       '<label class="field"><span>종목명</span><input id="h-name" placeholder="삼성전자" value="' + esc(e.name || "") + '"' + dis + '></label>' +
       '<label class="field"><span>수량 (주)</span><input id="h-qty" class="num" inputmode="decimal" placeholder="10" value="' + esc(e.qty != null ? e.qty : "") + '"' + dis + '></label>' +
       '<label class="field"><span>평단가 (원)</span><input id="h-avg" class="num" inputmode="decimal" placeholder="70,000" value="' + esc(e.avg_price != null ? e.avg_price.toLocaleString("ko-KR") : "") + '"' + dis + '></label>' +
@@ -376,7 +396,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   function renderWatch() {
     var dis = state.readonly || !state.db ? " disabled" : "", cm = closeMap();
     var h = '<section class="panel"><div class="block"><h2>관심 종목 추가</h2><div class="card"><form class="editor" id="f-watch" autocomplete="off">' +
-      '<label class="field"><span>종목코드 (6자리)</span><input id="w-code" class="num" inputmode="numeric" maxlength="6" placeholder="035420"' + dis + '></label>' +
+      '<label class="field"><span>종목코드 (6자리)</span><input id="w-code" class="num" inputmode="text" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="6" placeholder="035420"' + dis + '></label>' +
       '<label class="field"><span>종목명</span><input id="w-name" placeholder="NAVER"' + dis + '></label>' +
       '<label class="field full"><span>메모 (지켜보는 이유)</span><input id="w-memo" placeholder="선택 사항"' + dis + '></label>' +
       '<div class="full actions"><button class="primary" type="submit"' + dis + '>관심 종목 추가</button></div>' +
@@ -426,8 +446,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   function render() {
     document.querySelectorAll("nav.tabs button").forEach(function (b) { b.setAttribute("aria-selected", b.dataset.tab === state.tab ? "true" : "false"); });
     var r = currentReport(), a = $("#asof");
-    if (r) a.innerHTML = '<span class="pill num">' + esc(shortDate(r.as_of)) + ' 종가 기준</span><span>' + esc(String(r.generated_at || "").replace("T", " ").slice(0, 16)) + ' 작성 · 평일 오전 8시 전 자동 갱신</span>';
-    else a.innerHTML = '<span class="pill">' + (state.loaded.reports ? "리포트 대기" : "불러오는 중") + '</span><span>평일 오전 8시 전 자동 작성</span>';
+    var stale = missingToday() ? '<span class="pill warn">오늘 리포트 아직 없음</span>' : '';
+    if (r) a.innerHTML = '<span class="pill num">' + esc(shortDate(r.as_of)) + ' 종가 기준</span>' + stale + '<span>' + esc(String(r.generated_at || "").replace("T", " ").slice(0, 16)) + ' 작성 · 평일 오전 8시 전 자동 갱신</span>';
+    else a.innerHTML = '<span class="pill">' + (state.loaded.reports ? "리포트 대기" : "불러오는 중") + '</span>' + stale + '<span>평일 오전 8시 전 자동 작성</span>';
     var html = { status: renderStatus, holdings: renderHoldings, watch: renderWatch, rules: renderRules, history: renderHistory }[state.tab] || renderStatus;
     $("#main").innerHTML = html();
   }
