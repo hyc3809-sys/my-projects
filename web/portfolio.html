@@ -307,6 +307,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
       h += '<div class="banner">' + esc(r.date) + ' 리포트를 보고 있습니다. <button class="ghost small" data-act="latest">최신 리포트로</button></div>';
     }
     if (r === state.reports[0] && holdingsChanged(r)) h += '<div class="banner">보유 종목이 이 리포트 작성 이후 바뀌었습니다. 다음 리포트에 반영됩니다.</div>';
+    if (!t.count && r.positions && !r.positions.length) h += '<div class="card"><b>보유 종목 없음</b> <span class="muted">· 전량 현금' + (n(t.cash) ? ' ' + won(t.cash) : '') + '</span></div>';
     if (t.count) {
       h += '<div class="tiles">' +
         '<div class="tile"><span class="label">총자산 (주식+현금)</span><span class="value num">' + won(t.total_assets) + '</span><span class="sub muted">현금 ' + won(t.cash) + (n(t.cash_pct) != null ? ' · ' + t.cash_pct.toFixed(1) + '%' : '') + '</span></div>' +
@@ -416,7 +417,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     var list = state.holdings.slice().sort(function (a, b) { return (b.qty * b.avg_price) - (a.qty * a.avg_price); });
     h += '<div class="block"><h2>보유 종목 ' + list.length + '개</h2>';
     if (!list.length) {
-      h += '<div class="empty"><strong>아직 보유 종목이 없습니다</strong><span>위 칸에 종목코드, 수량, 평단가를 넣고 <b>종목 추가</b>를 누르세요. 종목코드는 증권사 앱이나 네이버 증권에서 확인할 수 있습니다.</span></div>';
+      h += '<div class="empty"><strong>보유 종목 없음 (전량 현금)</strong><span>매수하면 위 칸에 종목코드, 수량, 평단가를 넣고 <b>종목 추가</b>를 누르세요. 종목코드는 증권사 앱이나 네이버 증권에서 확인할 수 있습니다.</span></div>';
     } else {
       var total = 0;
       h += '<div class="rows">' + list.map(function (x) {

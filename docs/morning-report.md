@@ -9,7 +9,7 @@
 # 저장소 위치: 현재 폴더 또는 하위에 my-projects가 없으면 복제
 [ -d my-projects ] || git clone https://github.com/hyc3809-sys/my-projects
 cd my-projects
-git fetch origin fund-manager 2>/dev/null && git checkout -q fund-manager || git checkout -q main
+git checkout -q main && git pull -q origin main
 [ -x .venv/bin/python ] || python3 -m venv .venv
 .venv/bin/pip install -q -r requirements.txt
 WORK=$(mktemp -d)   # 실행마다 새 작업 폴더
@@ -60,7 +60,9 @@ WORK=$(mktemp -d)   # 실행마다 새 작업 폴더
   - 매수·매도 지시 대신 "검토 필요", "확인 필요"로 쓴다.
   - `alerts`의 info 항목(이동평균선, RSI, 거래량)은 하나씩 나열하지 말고 종목별로 묶어 한 줄로 요약한다.
   - 뉴스는 `news_within_days`일 이내 기사이며 블로그 출처는 이미 걸러져 있다. 기사 제목에 나온 목표가·전망은 "보도 내용"으로만 옮기고 의견으로 쓰지 않는다.
-  - 보유 종목이 없으면 포트폴리오·원칙 점검은 "보유 종목 미입력"으로 한 줄 처리한다.
+  - 보유 종목이 없으면 포트폴리오·원칙 점검은 "보유 종목 없음(전량 현금)" 한 줄로 쓰고,
+    대신 관심 종목 섹션을 종목별 2줄 이내로 자세히 쓴다(가격 추세, 밸류에이션, 수급, 관련 뉴스).
+    매수 시점을 제시하지 않고, 확인할 지표의 현재 상태만 정리한다.
   - `as_of`가 직전 거래일보다 오래되었으면(휴장 등) 첫 줄에 밝힌다.
   - `errors`가 있으면 마지막 섹션에 한 줄로 알린다.
 
@@ -77,7 +79,7 @@ WORK=$(mktemp -d)   # 실행마다 새 작업 폴더
 
 마지막 응답은 세 줄로 쓴다(휴대폰 알림에 표시됨).
 1. 지수 요약 (예: KOSPI 5,059.69 -6.02%)
-2. 포트폴리오 요약 (총평가 손익률, 전일 대비) 또는 "보유 종목 미입력"
+2. 포트폴리오 요약 (총평가 손익률, 전일 대비) 또는 "보유 종목 없음(전량 현금)"
 3. 원칙 점검 high·mid 건수와 대표 항목 1개, 또는 "기준 도달 항목 없음"
 
 실패한 단계가 있으면 어떤 단계에서 왜 실패했는지 쓴다. 저장하지 못한 리포트를 저장했다고 쓰지 않는다.
