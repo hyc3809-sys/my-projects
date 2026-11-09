@@ -97,3 +97,126 @@ def fetch_news(query: str, limit: int = 3, within_days: int = 2, must_contain: s
             title = title[: -len(f" - {source}")]
         entries.append({"title": title, "link": e.get("link", ""), "source": source, "published": e.get("published", "")})
     return filter_news(entries, limit, must_contain, seen)
+
+
+# ---------------------------------------------------------------------------
+# 종목 지표·수급 (m.stock.naver.com), 해외 지수·환율 (api.stock.naver.com)
+# ---------------------------------------------------------------------------
+M_API = "https://m.stock.naver.com/api"
+W_API = "https://api.stock.naver.com"
+UA = {"User-Agent": "Mozilla/5.0"}
+
+# 해외 지수: 표시 이름 -> 네이버 심볼
+WORLD_INDICES = {"S&P500": ".INX", "NASDAQ": ".IXIC", "DOW": ".DJI", "필라델피아반도체": ".SOX"}
+
+
+def _get_json(url: str):
+    resp = requests.get(url, headers=UA, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def parse_num(s) -> float | None:
+    """'8.54배', '22,292원', '+858,557', '45.94%' -> 숫자. 값이 없거나 '-'면 None."""
+    if s is None:
+        return None
+    if isinstance(s, (int, float)):
+        return float(s)
+    m = re.search(r"[-+]?\d+(?:\.\d+)?", str(s).replace(",", ""))
+    return float(m.group()) if m else None
+
+
+def parse_eok(s) -> float | None:
+    """'1,113조 1,314억' -> 11131314 (억원 단위)."""
+    if not s:
+        return None
+    t = str(s).replace(",", "")
+    jo = re.search(r"(\d+(?:\.\d+)?)조", t)
+    eok = re.search(r"(\d+(?:\.\d+)?)억", t)
+    if not jo and not eok:
+        return None
+    return (float(jo.group(1)) * 10000 if jo else 0) + (float(eok.group(1)) if eok else 0)
+
+
+def fetch_stock_profile(code: str) -> dict:
+    """주당 지표(EPS·BPS·DPS·추정EPS), 외국인 소진율, 시가총액, 증권사 컨센서스.
+
+    네이버 화면의 PER·PBR은 조회 시점 가격 기준이라 쓰지 않고, 주당 지표만 받아
+    KRX 종가로 다시 계산함(analyze.valuation).
+    """
+    d = _get_json(f"{M_API}/stock/{code}/integration")
+    info = {t.get("code"): t.get("value") for t in d.get("totalInfos") or []}
+    cons = d.get("consensusInfo") or {}
+    return {
+        "name": d.get("stockName"),
+        "type": d.get("stockEndType"),  # stock / etf / etn ...
+        "industry_code": d.get("industryCode"),
+        "eps": parse_num(info.get("eps")),
+        "bps": parse_num(info.get("bps")),
+        "dps": parse_num(info.get("dividend")),
+        "cns_eps": parse_num(info.get("cnsEps")),
+        "foreign_rate_pct": parse_num(info.get("foreignRate")),
+        "market_cap_eok": parse_eok(info.get("marketValue")),
+        "consensus": {
+            "date": cons.get("createDate"),
+            "target_mean": parse_num(cons.get("priceTargetMean")),
+            "recomm_mean": parse_num(cons.get("recommMean")),
+        }
+        if cons
+        else None,
+    }
+
+
+def fetch_stock_flows(code: str, days: int = 20) -> list[dict]:
+    """일별 투자자별 순매수 수량(주). 최신순."""
+    rows = _get_json(f"{M_API}/stock/{code}/trend?pageSize={days}&page=1") or []
+    out = []
+    for r in rows:
+        b = str(r.get("bizdate", ""))
+        out.append(
+            {
+                "date": f"{b[:4]}-{b[4:6]}-{b[6:8]}" if len(b) == 8 else b,
+                "foreign": parse_num(r.get("foreignerPureBuyQuant")),
+                "institution": parse_num(r.get("organPureBuyQuant")),
+                "individual": parse_num(r.get("individualPureBuyQuant")),
+                "foreign_hold_pct": parse_num(r.get("foreignerHoldRatio")),
+                "close": parse_num(r.get("closePrice")),
+            }
+        )
+    return out
+
+
+def fetch_market_flow(index: str) -> dict:
+    """지수(KOSPI/KOSDAQ) 투자자별 순매수 금액(억원)과 프로그램 매매. 네이버가 주는 최근 1일."""
+    d = _get_json(f"{M_API}/index/{index}/integration")
+    deal, prog = d.get("dealTrendInfo") or {}, d.get("programTrendInfo") or {}
+    b = str(deal.get("bizdate", ""))
+    return {
+        "date": f"{b[:4]}-{b[4:6]}-{b[6:8]}" if len(b) == 8 else b,
+        "individual_eok": parse_num(deal.get("personalValue")),
+        "foreign_eok": parse_num(deal.get("foreignValue")),
+        "institution_eok": parse_num(deal.get("institutionalValue")),
+        "program_total_eok": parse_num(prog.get("indexTotalReal")),
+    }
+
+
+def _series_summary(rows: list[dict], date_key: str = "localTradedAt") -> dict:
+    """네이버 가격 목록(최신순) -> 최근값, 등락률, 약 1개월(21거래일) 변화율."""
+    pts = [(str(r.get(date_key, ""))[:10], parse_num(r.get("closePrice")), parse_num(r.get("fluctuationsRatio"))) for r in rows]
+    pts = [p for p in pts if p[1] is not None]
+    if not pts:
+        raise ValueError("가격 데이터 없음")
+    last_date, last, chg = pts[0]
+    out = {"date": last_date, "close": last, "chg_pct": chg, "prev_date": pts[1][0] if len(pts) > 1 else None}
+    if len(pts) > 21 and pts[21][1]:
+        out["ret_1m_pct"] = round((last / pts[21][1] - 1) * 100, 2)
+    return out
+
+
+def fetch_world_index(symbol: str) -> dict:
+    return _series_summary(_get_json(f"{W_API}/index/{symbol}/price?page=1&pageSize=25"))
+
+
+def fetch_usdkrw() -> dict:
+    """원/달러 환율(하나은행 고시, 조회 시점의 최신값). 장중이면 당일 값이 들어옴."""
+    return _series_summary(_get_json(f"{W_API}/marketindex/exchange/FX_USDKRW/prices?page=1&pageSize=25"))

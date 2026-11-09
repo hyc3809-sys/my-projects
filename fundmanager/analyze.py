@@ -227,3 +227,105 @@ def check_rules(positions: list[dict], totals: dict, rules: dict) -> list[dict]:
         )
     order = {"high": 0, "mid": 1, "info": 2}
     return sorted(alerts, key=lambda a: order[a["level"]])
+
+
+def valuation(profile: dict | None, close: float | None) -> dict | None:
+    """KRX 종가 기준 밸류에이션. 주당 지표(EPS·BPS·DPS)는 네이버 제공값.
+
+    - PER = 종가 / EPS (EPS가 0 이하면 '적자'로 표시하고 PER 계산 안 함)
+    - 추정PER = 종가 / 증권사 추정 EPS
+    - PBR = 종가 / BPS, 배당수익률 = 주당배당금 / 종가 x 100
+    - 컨센서스 목표가 괴리 = (증권사 평균 목표가 / 종가 - 1) x 100  (집계 수치, 자체 전망 아님)
+    """
+    if not profile or not close:
+        return None
+    eps, bps, dps, ceps = profile.get("eps"), profile.get("bps"), profile.get("dps"), profile.get("cns_eps")
+    cons = profile.get("consensus") or {}
+    out = {
+        "type": profile.get("type"),
+        "eps": eps,
+        "bps": bps,
+        "dps": dps,
+        "per": _r(close / eps) if eps and eps > 0 else None,
+        "loss_making": bool(eps is not None and eps <= 0),
+        "fwd_per": _r(close / ceps) if ceps and ceps > 0 else None,
+        "pbr": _r(close / bps) if bps and bps > 0 else None,
+        "div_yield_pct": _r(dps / close * 100) if dps else None,
+        "foreign_rate_pct": profile.get("foreign_rate_pct"),
+        "market_cap_eok": profile.get("market_cap_eok"),
+    }
+    if cons.get("target_mean"):
+        out["consensus_target"] = cons["target_mean"]
+        out["consensus_gap_pct"] = _r((cons["target_mean"] / close - 1) * 100)
+        out["consensus_date"] = cons.get("date")
+        out["consensus_recomm"] = cons.get("recomm_mean")
+    return out
+
+
+def flow_summary(rows: list[dict] | None, as_of: str | None) -> dict | None:
+    """투자자별 순매수(주) 요약. as_of 이후(장중 미확정) 행은 제외.
+
+    금액은 일별 순매수 수량 x 그날 종가로 환산한 추정치(억원).
+    """
+    if not rows:
+        return None
+    rows = [r for r in rows if not as_of or r["date"] <= as_of]
+    if not rows:
+        return None
+
+    def eok(rs, key):
+        v = sum((r[key] or 0) * (r["close"] or 0) for r in rs)
+        return _r(v / 1e8, 1)
+
+    def streak(key):
+        sign = None
+        n = 0
+        for r in rows:
+            v = r[key] or 0
+            s = 1 if v > 0 else -1 if v < 0 else 0
+            if s == 0 or (sign is not None and s != sign):
+                break
+            sign, n = s, n + 1
+        return n * (sign or 0)
+
+    r5, r20 = rows[:5], rows[:20]
+    first, last5 = rows[0], r5[-1]
+    return {
+        "date": first["date"],
+        "days": len(r20),
+        "foreign_1d": first["foreign"],
+        "institution_1d": first["institution"],
+        "individual_1d": first["individual"],
+        "foreign_5d": sum(r["foreign"] or 0 for r in r5),
+        "institution_5d": sum(r["institution"] or 0 for r in r5),
+        "individual_5d": sum(r["individual"] or 0 for r in r5),
+        "foreign_5d_eok": eok(r5, "foreign"),
+        "institution_5d_eok": eok(r5, "institution"),
+        "foreign_20d_eok": eok(r20, "foreign"),
+        "institution_20d_eok": eok(r20, "institution"),
+        "foreign_streak": streak("foreign"),  # +3: 3일 연속 순매수, -4: 4일 연속 순매도
+        "institution_streak": streak("institution"),
+        "foreign_hold_pct": first["foreign_hold_pct"],
+        "foreign_hold_chg_5d_pp": _r(first["foreign_hold_pct"] - last5["foreign_hold_pct"])
+        if first["foreign_hold_pct"] is not None and last5["foreign_hold_pct"] is not None
+        else None,
+    }
+
+
+def flow_alerts(p: dict) -> list[dict]:
+    """수급·실적 관련 참고 알림(투자 원칙과 무관한 사실 표시)."""
+    out = []
+    f, v = p.get("flow") or {}, p.get("valuation") or {}
+
+    def add(text):
+        out.append({"level": "info", "code": p.get("code"), "name": p.get("name"), "text": text})
+
+    if (f.get("foreign_streak") or 0) <= -5:
+        add(f"외국인 {abs(f['foreign_streak'])}일 연속 순매도")
+    if (f.get("foreign_streak") or 0) >= 5:
+        add(f"외국인 {f['foreign_streak']}일 연속 순매수")
+    if (f.get("institution_streak") or 0) <= -5:
+        add(f"기관 {abs(f['institution_streak'])}일 연속 순매도")
+    if v.get("loss_making"):
+        add("EPS 0 이하 (적자, PER 산출 불가)")
+    return out

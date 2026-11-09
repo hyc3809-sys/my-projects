@@ -108,6 +108,50 @@ def build(inp: dict) -> dict:
         watch_rows.append(row)
 
     as_of = market.get("KOSPI", {}).get("date") or max((p.get("date", "") for p in positions), default="")
+
+    # 종목 지표(PER·PBR·배당·컨센서스)와 투자자별 수급
+    for row in [p for p in positions if "error" not in p] + [w for w in watch_rows if "error" not in w]:
+        code = row["code"]
+        try:
+            prof = data.fetch_stock_profile(code)
+            row["valuation"] = analyze.valuation(prof, row.get("close"))
+            if prof.get("name") and row.get("name") in ("", code):
+                row["name"] = prof["name"]
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{code} 종목 지표 조회 실패: {type(e).__name__}")
+        try:
+            row["flow"] = analyze.flow_summary(data.fetch_stock_flows(code), as_of)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{code} 수급 조회 실패: {type(e).__name__}")
+    for p in positions:
+        if "error" not in p:
+            alerts += analyze.flow_alerts(p)
+    alerts.sort(key=lambda a: {"high": 0, "mid": 1, "info": 2}[a["level"]])
+    for h in holdings + watch:  # 이름 없이 코드만 넣은 종목은 네이버 종목명으로 채움(뉴스 검색용)
+        if not h["name"] or h["name"] == h["code"]:
+            h["name"] = next((r["name"] for r in positions + watch_rows if r["code"] == h["code"] and r.get("name") != h["code"]), "")
+
+    # 시장 수급(투자자별 순매수 금액), 해외 지수, 환율
+    market_flow = {}
+    for name in data.INDEX_SYMBOLS:
+        try:
+            mf = data.fetch_market_flow(name)
+            mf["matches_as_of"] = mf["date"] == as_of
+            market_flow[name] = mf
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{name} 시장 수급 조회 실패: {type(e).__name__}")
+    world = {}
+    for name, sym in data.WORLD_INDICES.items():
+        try:
+            world[name] = data.fetch_world_index(sym)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{name} 조회 실패: {type(e).__name__}")
+    fx = {}
+    try:
+        fx["USDKRW"] = data.fetch_usdkrw()
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"원/달러 환율 조회 실패: {type(e).__name__}")
+
     # 뉴스 기간: 직전 거래일부터 오늘까지(월요일이면 금요일 기사 포함), 2~7일
     try:
         gap = (now.date() - dt.date.fromisoformat(as_of)).days
@@ -131,6 +175,9 @@ def build(inp: dict) -> dict:
         "generated_at": now.isoformat(timespec="minutes"),
         "as_of": as_of,
         "market": market,
+        "market_flow": market_flow,
+        "world": world,
+        "fx": fx,
         "totals": summary["totals"],
         "risk": summary["risk"],
         "rules": rules,
@@ -141,7 +188,11 @@ def build(inp: dict) -> dict:
         "news_within_days": within,
         "commentary": "",
         "errors": errors,
-        "sources": f"시세·지수: 네이버 금융(FinanceDataReader), 뉴스: Google 뉴스 RSS 최근 {within}일. 전 거래일 종가 기준.",
+        "sources": (
+            "시세·지수: 네이버 금융(FinanceDataReader), 종목 지표·수급·시장 수급: 네이버 증권, "
+            f"해외 지수·환율: 네이버 증권(환율은 하나은행 고시, 조회 시점 기준), 뉴스: Google 뉴스 RSS 최근 {within}일. "
+            "국내는 전 거래일 종가 기준. PER·PBR·배당수익률은 네이버 주당 지표를 종가로 다시 계산한 값."
+        ),
     }
 
 

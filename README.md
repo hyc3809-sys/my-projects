@@ -10,8 +10,8 @@
 
 | 경로 | 내용 |
 | --- | --- |
-| `fundmanager/data.py` | 시세·지수(네이버 금융, FinanceDataReader), 뉴스(Google 뉴스 RSS, 블로그 제외) 수집 |
-| `fundmanager/analyze.py` | 수익률·비중·변동성·MDD·베타·RSI 계산, 투자 원칙 점검 |
+| `fundmanager/data.py` | 시세·지수(네이버, FinanceDataReader), 종목 지표·수급·시장 수급(네이버 증권), 미국 지수·환율(네이버 증권), 뉴스(Google 뉴스 RSS) 수집 |
+| `fundmanager/analyze.py` | 수익률·비중·변동성·MDD·베타·RSI, PER·PBR·배당(종가 기준 재계산), 수급 요약, 투자 원칙 점검 |
 | `fundmanager/build_report.py` | 리포트 JSON 생성 |
 | `web/portfolio.html` | 포트폴리오 페이지 소스 |
 | `docs/morning-report.md` | 아침 예약 작업 실행 절차 |

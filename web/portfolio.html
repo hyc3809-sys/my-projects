@@ -120,6 +120,9 @@ section.panel { display: flex; flex-direction: column; gap: 20px; }
 .kv span:first-child { font-size: 11px; color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chips span { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+.flow { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+.flow b { font-weight: 500; }
+.small { font-size: 12px; }
 
 .rows { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); align-items: center; }
@@ -258,6 +261,38 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     close(); return out;
   }
 
+  // ---------- 지표·수급 표시 ----------
+  function eokFmt(v) { v = n(v); if (v == null) return "–"; var s = v > 0 ? "+" : v < 0 ? "−" : "", a = Math.abs(v); return s + (a >= 10000 ? (a / 10000).toFixed(2) + "조" : Math.round(a).toLocaleString("ko-KR") + "억"); }
+  function times(v) { v = n(v); return v == null ? "–" : v.toFixed(2) + "배"; }
+  function streakTxt(f) { var s = n(f.foreign_streak); if (s == null || Math.abs(s) < 2) return ""; return " · 외국인 " + Math.abs(s) + "일 연속 " + (s > 0 ? "순매수" : "순매도"); }
+  function valFlow(p) {
+    var v = p.valuation, f = p.flow, out = "";
+    if (v && v.type === "stock") {
+      out += '<div class="kv">' +
+        '<div><span>PER (추정)</span><span class="num">' + (v.loss_making ? "적자" : times(v.per)) + (n(v.fwd_per) != null ? ' <span class="muted">(' + v.fwd_per.toFixed(1) + ')</span>' : '') + '</span></div>' +
+        '<div><span>PBR</span><span class="num">' + times(v.pbr) + '</span></div>' +
+        '<div><span>배당수익률</span><span class="num">' + (n(v.div_yield_pct) != null ? v.div_yield_pct.toFixed(2) + "%" : "–") + '</span></div></div>';
+    }
+    if (f) {
+      out += '<div class="flow num">외국인 5일 <b class="' + cls(f.foreign_5d_eok) + '">' + eokFmt(f.foreign_5d_eok) + '</b> · 기관 5일 <b class="' + cls(f.institution_5d_eok) + '">' + eokFmt(f.institution_5d_eok) + '</b>' + esc(streakTxt(f)) +
+        (n(f.foreign_hold_pct) != null ? '<br>외국인 보유 ' + f.foreign_hold_pct.toFixed(2) + '%' + (n(f.foreign_hold_chg_5d_pp) != null ? ' (5일 ' + (f.foreign_hold_chg_5d_pp > 0 ? '+' : '') + f.foreign_hold_chg_5d_pp.toFixed(2) + '%p)' : '') : '') +
+        '<br><span class="small">수급 금액은 일별 순매수 수량×종가로 추정</span></div>';
+    }
+    if (v && n(v.consensus_target) != null) out += '<div class="muted small">증권사 평균 목표가 ' + num(v.consensus_target) + '원 (' + esc(shortDate(v.consensus_date)) + ' 집계, 종가 대비 ' + pct(v.consensus_gap_pct) + ')</div>';
+    return out;
+  }
+  function watchExtra(w) {
+    var v = w.valuation, f = w.flow, s = [];
+    if (v && v.type === "stock") { s.push(v.loss_making ? "적자" : "PER " + (n(v.per) != null ? v.per.toFixed(1) : "–")); s.push("PBR " + (n(v.pbr) != null ? v.pbr.toFixed(2) : "–")); }
+    if (f) s.push("외국인 5일 " + eokFmt(f.foreign_5d_eok));
+    return s.length ? "<br>" + esc(s.join(" · ")) : "";
+  }
+  function mflow(r, k) {
+    var f = (r.market_flow || {})[k]; if (!f || n(f.foreign_eok) == null) return "";
+    var note = f.matches_as_of ? "" : ' <span class="muted">(' + esc(shortDate(f.date)) + ' 기준)</span>';
+    return '<span class="meta num">외국인 ' + eokFmt(f.foreign_eok) + '<br>기관 ' + eokFmt(f.institution_eok) + '<br>개인 ' + eokFmt(f.individual_eok) + note + '</span>';
+  }
+
   // ---------- 화면: 현황 ----------
   function renderStatus() {
     var r = currentReport();
@@ -284,8 +319,16 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
       var m = mk[k]; if (!m) return '<div class="mkt"><span class="name">' + k + '</span><span class="muted">조회 실패</span></div>';
       return '<div class="mkt"><span class="name">' + k + '</span><span class="close num">' + num(m.close, 2) + '</span>' +
         '<span class="num ' + cls(m.chg_pct) + '">' + pct(m.chg_pct) + '</span>' +
-        '<span class="meta num">1개월 ' + pct(m.ret_1m_pct) + '<br>52주 고점 대비 ' + pct(m.from_high52_pct) + '</span></div>';
+        '<span class="meta num">1개월 ' + pct(m.ret_1m_pct) + '<br>52주 고점 대비 ' + pct(m.from_high52_pct) + '</span>' + mflow(r, k) + '</div>';
     }).join("") + '</div></div>';
+
+    var wd = r.world || {}, wk = Object.keys(wd), fxr = (r.fx || {}).USDKRW;
+    if (wk.length || fxr) {
+      h += '<div class="block"><h2>해외 증시·환율</h2><div class="rows">' + wk.map(function (k) {
+        var w = wd[k];
+        return '<div class="row"><span class="l">' + esc(k) + ' <span class="muted num small">' + esc(shortDate(w.date)) + '</span></span><span class="r num">' + num(w.close, 2) + ' <span class="' + cls(w.chg_pct) + '">' + pct(w.chg_pct) + '</span><br><span class="muted small">1개월 ' + pct(w.ret_1m_pct) + '</span></span></div>';
+      }).join("") + (fxr ? '<div class="row"><span class="l">원/달러 환율 <span class="muted num small">' + esc(shortDate(fxr.date)) + ' 조회 시점</span></span><span class="r num">' + num(fxr.close, 2) + '원 <span class="' + cls(fxr.chg_pct) + '">' + pct(fxr.chg_pct) + '</span><br><span class="muted small">1개월 ' + pct(fxr.ret_1m_pct) + '</span></span></div>' : '') + '</div></div>';
+    }
 
     if (r.alerts && r.alerts.length) {
       var tag = { high: "조치 검토", mid: "주의", info: "참고" };
@@ -315,7 +358,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
           '<div><span>보유</span><span class="num">' + num(p.qty) + '주</span></div>' +
           '<div><span>평단가</span><span class="num">' + num(p.avg_price) + '</span></div>' +
           '<div><span>평가금액</span><span class="num">' + won(p.value) + '</span></div>' +
-          '</div><div class="chips">' + chips.map(function (c) { return '<span class="num">' + esc(c) + '</span>'; }).join("") + '</div></div>';
+          '</div>' + valFlow(p) + '<div class="chips">' + chips.map(function (c) { return '<span class="num">' + esc(c) + '</span>'; }).join("") + '</div></div>';
       }).join("") + '</div></div>';
     }
 
@@ -331,7 +374,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     if (r.watch && r.watch.length) {
       h += '<div class="block"><h2>관심 종목</h2><div class="rows">' + r.watch.map(function (w) {
         if (w.error) return '<div class="row"><span class="l">' + esc(w.name) + ' <span class="muted num">' + esc(w.code) + '</span></span><span class="r muted">' + esc(w.error) + '</span></div>';
-        return '<div class="row"><span class="l"><b>' + esc(w.name) + '</b> <span class="muted num">' + esc(w.code) + '</span><br><span class="muted num" style="font-size:12px">1개월 ' + pct(w.ret_1m_pct) + ' · 고점 대비 ' + pct(w.from_high52_pct) + (n(w.rsi14) != null ? ' · RSI ' + w.rsi14.toFixed(0) : '') + '</span></span>' +
+        return '<div class="row"><span class="l"><b>' + esc(w.name) + '</b> <span class="muted num">' + esc(w.code) + '</span><br><span class="muted num" style="font-size:12px">1개월 ' + pct(w.ret_1m_pct) + ' · 고점 대비 ' + pct(w.from_high52_pct) + (n(w.rsi14) != null ? ' · RSI ' + w.rsi14.toFixed(0) : '') + watchExtra(w) + '</span></span>' +
           '<span class="r num">' + num(w.close) + '<br><span class="' + cls(w.chg_pct) + '">' + pct(w.chg_pct) + '</span></span></div>';
       }).join("") + '</div></div>';
     }

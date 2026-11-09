@@ -100,5 +100,63 @@ class DataHelpers(unittest.TestCase):
         self.assertEqual([e["source"] for e in out], ["연합뉴스", "매일경제"])
 
 
+class NaverParsing(unittest.TestCase):
+    def test_parse_num(self):
+        self.assertEqual(data.parse_num("8.54배"), 8.54)
+        self.assertEqual(data.parse_num("22,292원"), 22292)
+        self.assertEqual(data.parse_num("+858,557"), 858557)
+        self.assertEqual(data.parse_num("-5,772,197"), -5772197)
+        self.assertEqual(data.parse_num("45.94%"), 45.94)
+        self.assertIsNone(data.parse_num("-"))
+        self.assertIsNone(data.parse_num(None))
+
+    def test_parse_eok(self):
+        self.assertEqual(data.parse_eok("1,113조 1,314억"), 11131314)
+        self.assertEqual(data.parse_eok("3,759억"), 3759)
+        self.assertIsNone(data.parse_eok(""))
+
+    def test_series_summary(self):
+        rows = [{"localTradedAt": f"2026-11-{30 - i:02d}T16:00:00-05:00", "closePrice": f"{110 - i:,}", "fluctuationsRatio": "1.0"} for i in range(25)]
+        s = data._series_summary(rows)
+        self.assertEqual(s["date"], "2026-11-30")
+        self.assertEqual(s["close"], 110)
+        self.assertAlmostEqual(s["ret_1m_pct"], (110 / 89 - 1) * 100, places=2)
+
+
+class ValuationAndFlow(unittest.TestCase):
+    def test_valuation_uses_close(self):
+        v = analyze.valuation({"type": "stock", "eps": 20000, "bps": 100000, "dps": 2000, "cns_eps": 40000,
+                               "consensus": {"target_mean": 300000, "date": "2026-11-06"}}, 200000)
+        self.assertEqual(v["per"], 10.0)
+        self.assertEqual(v["fwd_per"], 5.0)
+        self.assertEqual(v["pbr"], 2.0)
+        self.assertEqual(v["div_yield_pct"], 1.0)
+        self.assertEqual(v["consensus_gap_pct"], 50.0)
+
+    def test_loss_making(self):
+        v = analyze.valuation({"type": "stock", "eps": -500, "bps": 1000}, 2000)
+        self.assertIsNone(v["per"])
+        self.assertTrue(v["loss_making"])
+
+    def test_flow_summary(self):
+        rows = [  # 최신순, 첫 행은 장중(as_of 이후) → 제외돼야 함
+            {"date": "2026-11-09", "foreign": 999, "institution": 0, "individual": 0, "foreign_hold_pct": 50.0, "close": 100},
+        ] + [
+            {"date": f"2026-11-0{6 - i}", "foreign": -1000, "institution": 500 if i < 2 else -10, "individual": 500,
+             "foreign_hold_pct": 45.0 + i * 0.1, "close": 100_000}
+            for i in range(5)
+        ]
+        f = analyze.flow_summary(rows, "2026-11-06")
+        self.assertEqual(f["date"], "2026-11-06")
+        self.assertEqual(f["foreign_1d"], -1000)
+        self.assertEqual(f["foreign_5d"], -5000)
+        self.assertEqual(f["foreign_5d_eok"], -5.0)  # 5 x (-1000주 x 10만원) = -5억
+        self.assertEqual(f["foreign_streak"], -5)
+        self.assertEqual(f["institution_streak"], 2)
+        self.assertEqual(f["foreign_hold_chg_5d_pp"], -0.4)
+        alerts = analyze.flow_alerts({"code": "X", "name": "X", "flow": f, "valuation": None})
+        self.assertIn("외국인 5일 연속 순매도", alerts[0]["text"])
+
+
 if __name__ == "__main__":
     unittest.main()
