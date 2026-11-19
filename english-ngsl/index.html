@@ -212,6 +212,27 @@ mark{background:var(--marker);color:var(--marker-ink);border-radius:3px;padding:
 .oovlist{display:flex;flex-wrap:wrap;gap:6px}
 .oovlist span{font-family:var(--f-mono);font-size:12.5px;background:var(--sunk);border-radius:6px;padding:2px 8px}
 
+/* quick: one-thumb bites */
+.qtop{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;font-size:13px;color:var(--muted)}
+.qtop b{font-family:var(--f-mono);font-size:20px;font-weight:500;color:var(--ink)}
+.qtop .bar{height:6px}
+.qtop .bar i.met{background:var(--good)}
+.qcard{font:inherit;color:inherit;text-align:left;width:100%;display:flex;flex-direction:column;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px 20px;min-height:min(52vh,420px);cursor:pointer}
+.qcard.back{cursor:default}
+.qcard .q-mean{font-size:clamp(22px,6vw,28px);font-weight:600;line-height:1.35}
+.qcard .q-sent{font-family:var(--f-display);font-size:clamp(20px,5.2vw,24px);line-height:1.45}
+.qcard .q-ko{color:var(--muted);font-size:14.5px}
+.qcard .q-tap{margin-top:auto;font-size:13px;color:var(--accent);font-weight:500}
+.qgrades{position:sticky;bottom:calc(10px + env(safe-area-inset-bottom,0px));display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:8px;z-index:4}
+.qgrades button{padding:16px 6px;font-size:16px;font-weight:600;border-radius:12px;border:1px solid var(--line);background:var(--surface);cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.08)}
+.qgrades button[data-g="0"]{color:var(--miss);border-color:var(--miss)}
+.qgrades button[data-g="2"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.qbig{font-size:17px;padding-block:16px}
+.pod .en{font-family:var(--f-display);font-size:clamp(21px,5.5vw,26px);line-height:1.35}
+.dots{display:inline-flex;gap:5px;vertical-align:middle}
+.dots i{width:9px;height:9px;border-radius:50%;background:var(--sunk);display:inline-block;border:1px solid var(--line)}
+.dots i.on{background:var(--good);border-color:var(--good)}
+
 /* method */
 .doc{display:flex;flex-direction:column;gap:22px}
 .doc section{display:flex;flex-direction:column;gap:10px}
@@ -236,6 +257,7 @@ footer{border-top:1px solid var(--line);padding-block:18px 28px;font-size:12px;c
     </div>
     <nav class="tabs" aria-label="메뉴">
       <a href="#today">오늘</a>
+      <a href="#quick">1분 학습</a>
       <a href="#study">카드 학습</a>
       <a href="#test">어휘 진단</a>
       <a href="#words">단어장</a>
@@ -249,6 +271,7 @@ footer{border-top:1px solid var(--line);padding-block:18px 28px;font-size:12px;c
 
 <main class="wrap">
   <section class="view" id="v-today"></section>
+  <section class="view" id="v-quick" hidden></section>
   <section class="view" id="v-study" hidden></section>
   <section class="view" id="v-test" hidden></section>
   <section class="view" id="v-words" hidden></section>
@@ -371,7 +394,7 @@ function dayKey(n){ return new Date(n*86400000).toISOString().slice(0,10); }
 function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
 
 /* ---------- state ---------- */
-function defaultState(){ return {v:1, updatedAt:0, cards:{}, log:{}, settings:{newPerDay:15, chunkPerDay:5, dir:'prod', rate:0.9, voice:'', auto:true}}; }
+function defaultState(){ return {v:1, updatedAt:0, cards:{}, log:{}, settings:{newPerDay:15, chunkPerDay:5, dir:'prod', rate:0.9, voice:'', auto:true, goal:20}}; }
 function normalize(s){
   var d=defaultState();
   if(!s || typeof s!=='object') return d;
@@ -499,7 +522,7 @@ function plan(){
 var sessExtra={w:0,c:0};
 
 /* ---------- router ---------- */
-var VIEWS=['today','study','test','words','phrases','talk','coverage','method'];
+var VIEWS=['today','quick','study','test','words','phrases','talk','coverage','method'];
 var cur='today';
 function route(){
   var v=(location.hash||'').slice(1); if(VIEWS.indexOf(v)<0) v='today';
@@ -511,7 +534,7 @@ function route(){
   render(v);
   if(changed) window.scrollTo(0,0);
 }
-function render(v){ ({today:renderToday,study:renderStudy,test:renderTest,words:renderWords,phrases:renderPhrases,talk:renderTalk,coverage:renderCoverage,method:function(){}})[v](); }
+function render(v){ ({today:renderToday,quick:renderQuick,study:renderStudy,test:renderTest,words:renderWords,phrases:renderPhrases,talk:renderTalk,coverage:renderCoverage,method:function(){}})[v](); }
 function rerender(){ render(cur); }
 window.addEventListener('hashchange', route);
 
@@ -532,7 +555,7 @@ function renderToday(){
     return '<button class="'+cls+(peekId===x.id?' sel':'')+'" data-act="peek" data-id="'+esc(x.id)+'" title="'+esc(x.w+' · '+x.ko)+'" aria-label="'+esc(x.w)+'"></button>'; }).join('');
   var peek = peekId && BYID[peekId] ? (function(x){ return '<span class="hw">'+esc(x.w)+'</span>'+spk(x.w)+'<span>'+esc(x.ko)+'</span><span class="pill '+pillCls(statusOf(x.id))+'">'+STATUS_LABEL[statusOf(x.id)]+'</span>'; })(BYID[peekId])
     : '<span class="muted small">칸을 누르면 단어가 보임. 칸 순서 = 학습 순서.</span>';
-  var talkDone = L.talk>=5, cardDone = started && p.due.length===0 && p.fw.length===0 && p.fc.length===0;
+  var talkDone = L.talk>=5, cardDone = L.rev>=goal() || (started && p.due.length===0 && p.fw.length===0 && p.fc.length===0);
   var learned = counts[2]+counts[3]+counts.k;
   var opts=function(arr,val){ return arr.map(function(o){ return '<option value="'+o[0]+'"'+(String(o[0])===String(val)?' selected':'')+'>'+o[1]+'</option>'; }).join(''); };
   var voiceOpts = TTS.voices.length ? TTS.voices.map(function(v){ return [v.name, v.name+' ('+v.lang+')']; }) : [['','기본 영어 음성']];
@@ -541,7 +564,8 @@ function renderToday(){
       '<div style="display:flex;flex-direction:column;gap:12px;min-width:0">'+
         '<p class="eyebrow">오늘의 학습 · '+dateStr+'</p>'+
         '<h1>복습 <em>'+p.due.length+'</em> · 새 단어 <em>'+p.fw.length+'</em> · 새 표현 <em>'+p.fc.length+'</em></h1>'+
-        '<div class="row"><a class="btn primary" href="#study">카드 학습 시작</a>'+(started?'':'<a class="btn" href="#test">어휘 진단 먼저 하기</a>')+'<a class="btn" href="#talk">AI 회화</a></div>'+
+        '<div class="row"><a class="btn primary" href="#quick">1분 학습 (5장)</a><a class="btn" href="#study">카드 학습 전체</a>'+(started?'':'<a class="btn" href="#test">어휘 진단 먼저 하기</a>')+'<a class="btn" href="#talk">AI 회화</a></div>'+
+        '<p class="small muted">바쁜 날 최소 목표: 카드 '+goal()+'장 · 오늘 '+L.rev+'장 완료</p>'+
       '</div>'+
       '<div class="statcol">'+
         '<div class="stat"><b>'+streak()+'</b><span>연속 학습일</span></div>'+
@@ -564,12 +588,13 @@ function renderToday(){
       '<p class="note">익숙함 = 다음 복습까지 7일 이상, 장기 기억 = 21일 이상 남은 단어.</p>'+
     '</div>'+
     '<div class="panel"><h2>오늘의 루틴</h2><ul class="routine">'+
-      routineRow(cardDone,'카드 학습','복습 '+p.due.length+'개, 새 단어 '+p.fw.length+'개, 새 표현 '+p.fc.length+'개 남음 · 오늘 '+L.rev+'회 학습','#study','열기')+
-      routineRow(!!L.shadow,'핵심 표현 섀도잉','한 그룹을 끝까지 듣고 따라 말하면 완료','#phrases','열기')+
+      routineRow(cardDone,'카드 학습 (최소 '+goal()+'장)','오늘 '+L.rev+'장 완료 · 남은 분량: 복습 '+p.due.length+', 새 단어 '+p.fw.length+', 새 표현 '+p.fc.length,'#quick','1분 학습')+
+      routineRow(!!L.shadow || (L.pod||0)>=3,'표현 따라 말하기','오늘의 표현 3번(1분 학습 화면) 또는 핵심 표현 한 그룹 섀도잉','#phrases','열기')+
       routineRow(talkDone,'AI 회화','오늘 '+L.talk+'턴 / 목표 5턴','#talk','열기')+
       '<li><button class="check'+(L.listen?' on':'')+'" data-act="listen" aria-pressed="'+(!!L.listen)+'" aria-label="영어 듣기 완료 표시">'+(L.listen?TICK:'')+'</button><div><b>쉬운 영어 듣기 10–15분</b><small>앱 밖에서 학습자용 팟캐스트·영상 등. 끝나면 왼쪽 칸을 눌러 표시</small></div><span></span></li>'+
     '</ul></div>'+
     '<div class="panel"><h2>설정</h2><div class="settings">'+
+      '<label class="field">바쁜 날 최소 목표<select id="set-goal">'+opts([[12,'3분 · 카드 12장'],[20,'5분 · 카드 20장'],[40,'10분 · 카드 40장']],goal())+'</select></label>'+
       '<label class="field">하루 새 단어<select id="set-new">'+opts([[5,'5개'],[10,'10개'],[15,'15개'],[20,'20개'],[30,'30개']],S.settings.newPerDay)+'</select></label>'+
       '<label class="field">하루 새 표현<select id="set-chunk">'+opts([[0,'0개'],[3,'3개'],[5,'5개'],[8,'8개']],S.settings.chunkPerDay)+'</select></label>'+
       '<label class="field">카드 방향<select id="set-dir">'+opts([['prod','한국어 → 영어 (말하기용, 권장)'],['recv','영어 → 한국어 (이해용)']],S.settings.dir)+'</select></label>'+
@@ -588,14 +613,18 @@ function routineRow(done,title,sub,href,cta){
 
 /* ---------- study ---------- */
 var sess=null;
-function newSession(){
-  var p=plan();
-  var q=p.due.slice();
-  var fresh=[], a=p.fw.slice(), b=p.fc.slice();
+function queueFrom(p){
+  var q=p.due.slice(), fresh=[], a=p.fw.slice(), b=p.fc.slice();
   while(a.length||b.length){ if(a.length) fresh.push(a.shift()); if(a.length) fresh.push(a.shift()); if(b.length) fresh.push(b.shift()); }
+  if(!q.length) return fresh;
   /* spread new items between reviews */
-  var out=[]; var step = q.length ? Math.max(1, Math.floor(q.length/(fresh.length+1))) : 0;
-  if(!q.length) out=fresh; else { var fi=0; q.forEach(function(x,i){ out.push(x); if(step && (i+1)%step===0 && fi<fresh.length) out.push(fresh[fi++]); }); while(fi<fresh.length) out.push(fresh[fi++]); }
+  var out=[], fi=0, step=Math.max(1, Math.floor(q.length/(fresh.length+1)));
+  q.forEach(function(x,i){ out.push(x); if((i+1)%step===0 && fi<fresh.length) out.push(fresh[fi++]); });
+  while(fi<fresh.length) out.push(fresh[fi++]);
+  return out;
+}
+function newSession(){
+  var out=queueFrom(plan());
   sess={q:out, i:0, flipped:false, hint:false, typed:'', total:out.length, done:0};
 }
 function renderStudy(){
@@ -659,11 +688,75 @@ function flip(){
 }
 function doGrade(g){
   if(!sess || !sess.flipped) return;
-  var item=sess.q[sess.i]; grade(item,g);
+  var item=sess.q[sess.i]; grade(item,g); bite=null;
   if(g===0){ var pos=Math.min(sess.q.length, sess.i+4); sess.q.splice(pos,0,item); }
   sess.i++; sess.flipped=false; sess.hint=false; sess.typed='';
   if(sess.i>=sess.q.length) sess.q=[];
   renderStudy();
+}
+
+/* ---------- quick: 1-minute bites for the phone ---------- */
+function goal(){ return Number(S.settings.goal)||20; }
+var bite=null;
+function podItem(){ return CHUNKS[today() % CHUNKS.length]; }
+function startBite(){ var q=queueFrom(plan()).slice(0,5); bite={q:q, i:0, flipped:false, n:q.length, re:{}}; sess=null; }
+function quickTop(){
+  var L=lg(), g=goal(), pct=Math.min(100,Math.round(L.rev/g*100));
+  return '<div class="qtop"><div><b>'+L.rev+'</b> / '+g+'장</div><div class="bar" role="progressbar" aria-label="오늘 목표 진행" aria-valuemin="0" aria-valuemax="'+g+'" aria-valuenow="'+Math.min(L.rev,g)+'"><i class="'+(L.rev>=g?'met':'')+'" style="width:'+pct+'%"></i></div><div>연속 '+streak()+'일</div></div>';
+}
+function podHTML(){
+  var c=podItem(), n=Math.min(3, lg().pod||0), dots='';
+  for(var i=0;i<3;i++) dots+='<i class="'+(i<n?'on':'')+'"></i>';
+  return '<div class="panel pod"><p class="eyebrow">오늘의 표현</p>'+
+    '<div class="row" style="flex-wrap:nowrap;align-items:flex-start"><p class="en" style="flex:1;min-width:0">'+esc(c.en)+'</p>'+spk(c.en)+'</div>'+
+    '<p class="small muted">'+esc(c.ko)+' · '+esc(c.group)+'</p>'+
+    '<div class="row"><button class="btn" data-act="q-rep"'+(n>=3?' disabled':'')+'>'+(n>=3?'오늘 3번 완료':'듣고 따라 말했음')+'</button><span class="dots" role="img" aria-label="따라 말하기 '+n+'/3">'+dots+'</span></div></div>';
+}
+function renderQuick(){
+  var el=$('#v-quick'), L=lg();
+  if(bite && bite.i<bite.q.length){
+    var item=bite.q[bite.i], c=S.cards[item.id], isNew=!c||c.s==='n'||c.s==='k';
+    var head=quickTop()+'<div class="card-meta"><span class="pill">'+(item.kind==='w'?esc(CAT[item.cat]):esc(item.group))+'</span><span class="pill'+(isNew?' sk':'')+'">'+(isNew?'새 항목':'복습')+'</span><span class="mono">'+(bite.i+1)+' / '+bite.q.length+'</span></div>';
+    var body='';
+    if(item.kind==='w'){
+      var m=item.ex.match(/\{([^}]+)\}/), form=m?m[1]:item.w;
+      if(!bite.flipped){
+        if(S.settings.dir==='recv') body='<button class="qcard" data-act="q-flip"><span class="q-sent" style="font-size:clamp(34px,9vw,44px);font-weight:600">'+esc(item.w)+'</span><span class="q-ko">뜻을 떠올려 보기</span><span class="q-tap">탭해서 정답 보기</span></button>';
+        else body='<button class="qcard" data-act="q-flip"><span class="q-mean">'+esc(item.ko)+'</span><span class="q-sent">'+esc(item.ex).replace(/\{([^}]+)\}/,function(_,f){ return '<span class="blank" style="--len:'+f.length+'"></span>'; })+'</span><span class="q-ko">'+esc(item.exKo)+'</span><span class="q-tap">빈칸 단어를 소리 내 말한 뒤 탭</span></button>';
+      } else {
+        body='<div class="qcard back"><div class="headword"><b>'+esc(item.w)+'</b>'+spk(item.w)+'</div>'+
+          (form.toLowerCase()!==item.w.toLowerCase()?'<p class="form-note">문장 속 형태: <b>'+esc(form)+'</b></p>':'')+
+          '<p class="q-mean" style="font-size:18px">'+esc(item.ko)+'</p>'+
+          '<div class="row" style="flex-wrap:nowrap;align-items:flex-start"><p class="q-sent" style="flex:1;min-width:0">'+esc(item.ex).replace(/\{([^}]+)\}/,'<mark>$1</mark>')+'</p>'+spk(item.ex.replace(/[{}]/g,''),'예문 듣기')+'</div>'+
+          '<p class="q-ko">'+esc(item.exKo)+'</p></div>';
+      }
+    } else {
+      if(!bite.flipped) body='<button class="qcard" data-act="q-flip"><span class="q-mean">'+esc(item.ko)+'</span><span class="q-ko">영어로 소리 내 말해 보기</span><span class="q-tap">탭해서 정답 보기</span></button>';
+      else body='<div class="qcard back"><div class="row" style="flex-wrap:nowrap;align-items:flex-start"><p class="q-sent" style="flex:1;min-width:0;font-size:clamp(22px,6vw,28px)">'+esc(item.en)+'</p>'+spk(item.en)+'</div><p class="q-ko">'+esc(item.ko)+'</p><p class="small muted">같은 리듬으로 2–3번 따라 말하기</p></div>';
+    }
+    var grades = bite.flipped ? '<div class="qgrades"><button data-act="q-grade" data-g="0">몰랐음</button><button data-act="q-grade" data-g="2">알았음</button><button data-act="q-grade" data-g="3">쉬움</button></div>' : '';
+    el.innerHTML=head+body+grades;
+    return;
+  }
+  var p=plan(), left=p.due.length+p.fw.length+p.fc.length, g=goal(), msg;
+  if(bite && bite.n) msg='<h2>한 입 완료</h2><p>'+(L.rev>=g?'오늘 최소 목표 달성. 여유 있으면 한 입 더.':'목표까지 '+(g-L.rev)+'장 남음. 틈날 때 한 입씩.')+'</p>';
+  else msg='<h2>틈날 때 1분</h2><p>카드 5장이 한 입. 하루 '+Math.ceil(g/5)+'입이면 바쁜 날 최소 목표('+g+'장) 달성.</p>';
+  var cta = left ? '<button class="btn primary wide qbig" data-act="q-start">'+(bite&&bite.n?'한 입 더 (5장)':'한 입 시작 (5장)')+'</button>'
+    : '<p class="warnbox">오늘 학습할 카드를 다 끝냄. 아래 오늘의 표현만 따라 말하면 됨. 더 하려면 <a href="#study">카드 학습</a>에서 새 단어를 추가할 수 있음.</p>';
+  el.innerHTML=quickTop()+'<div class="panel">'+msg+cta+'<p class="small muted">남은 분량: 복습 '+p.due.length+' · 새 단어 '+p.fw.length+' · 새 표현 '+p.fc.length+'</p></div>'+podHTML();
+}
+function quickFlip(){
+  if(!bite || bite.flipped || bite.i>=bite.q.length) return;
+  bite.flipped=true; renderQuick();
+  var item=bite.q[bite.i];
+  if(S.settings.auto) TTS.speak(item.kind==='w' ? item.ex.replace(/[{}]/g,'') : item.en);
+}
+function quickGrade(g){
+  if(!bite || !bite.flipped) return;
+  var item=bite.q[bite.i]; grade(item,g);
+  if(g===0 && !bite.re[item.id]){ bite.re[item.id]=1; bite.q.push(item); }
+  bite.i++; bite.flipped=false;
+  renderQuick(); window.scrollTo(0,0);
 }
 
 /* ---------- placement test ---------- */
@@ -1017,6 +1110,10 @@ var ACT={
   reset0:function(){ renderToday(); },
   reset2:function(){ var keep=S.settings; S=defaultState(); S.settings=keep; sess=null; test=null; Store.touch(); renderToday(); },
   flip:function(){ flip(); },
+  'q-start':function(){ startBite(); renderQuick(); window.scrollTo(0,0); },
+  'q-flip':function(){ quickFlip(); },
+  'q-grade':function(a){ quickGrade(Number(a.dataset.g)); },
+  'q-rep':function(){ var L=lg(); L.pod=Math.min(3,(L.pod||0)+1); Store.touch(); renderQuick(); },
   hint:function(){ sess.hint=true; var inp=$('#typed'); if(inp) sess.typed=inp.value; renderStudy(); },
   grade:function(a){ doGrade(Number(a.dataset.g)); },
   more:function(a){ if(a.dataset.k==='w') sessExtra.w+=10; else sessExtra.c+=5; sess=null; renderStudy(); },
@@ -1051,18 +1148,21 @@ document.addEventListener('click', function(e){
   var f=ACT[a.dataset.act]; if(f){ if(a.tagName==='A') e.preventDefault(); f(a,e); }
 });
 document.addEventListener('change', function(e){
-  var id=e.target.id, v=e.target.value, map={'set-new':'newPerDay','set-chunk':'chunkPerDay','set-dir':'dir','set-rate':'rate','set-voice':'voice','set-auto':'auto'};
+  var id=e.target.id, v=e.target.value, map={'set-goal':'goal','set-new':'newPerDay','set-chunk':'chunkPerDay','set-dir':'dir','set-rate':'rate','set-voice':'voice','set-auto':'auto'};
   if(!map[id]) return;
   var k=map[id];
-  S.settings[k] = (k==='newPerDay'||k==='chunkPerDay'||k==='rate') ? Number(v) : (k==='auto' ? v==='1' : v);
-  if(k==='newPerDay'||k==='chunkPerDay'||k==='dir') sess=null;
+  S.settings[k] = (k==='newPerDay'||k==='chunkPerDay'||k==='rate'||k==='goal') ? Number(v) : (k==='auto' ? v==='1' : v);
+  if(k==='newPerDay'||k==='chunkPerDay'||k==='dir'){ sess=null; bite=null; }
   Store.touch(); renderToday();
   if(k==='voice'||k==='rate') TTS.speak('This is how I sound.');
 });
 document.addEventListener('keydown', function(e){
   var tag=(e.target.tagName||'').toLowerCase(); if(tag==='input'||tag==='textarea'||tag==='select') return;
   if(e.metaKey||e.ctrlKey||e.altKey) return;
-  if(cur==='study' && sess && sess.q.length){
+  if(cur==='quick' && bite && bite.i<bite.q.length){
+    if((e.key===' '||e.key==='Enter') && !bite.flipped){ e.preventDefault(); quickFlip(); }
+    else if(bite.flipped && /^[1-3]$/.test(e.key)){ e.preventDefault(); quickGrade([0,2,3][Number(e.key)-1]); }
+  } else if(cur==='study' && sess && sess.q.length){
     if((e.key===' '||e.key==='Enter') && !sess.flipped){ e.preventDefault(); flip(); }
     else if(sess.flipped && /^[1-4]$/.test(e.key)){ e.preventDefault(); doGrade(Number(e.key)-1); }
   } else if(cur==='test' && test && test.i<test.items.length){
